@@ -3,8 +3,7 @@ config.py — Uygulama ayarları
 Tüm environment variable'lar buradan okunur, başka dosyalar .env'e doğrudan bakmamalı.
 """
 from pydantic_settings import BaseSettings
-from typing import List
-
+from typing import List, Optional
 
 class Ayarlar(BaseSettings):
     # Supabase
@@ -12,8 +11,9 @@ class Ayarlar(BaseSettings):
     supabase_key: str
 
     # Ollama LLM
-    ollama_api_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1:8b"
+    ollama_api_url: str = "https://ollama.com"
+    ollama_model: str = "gpt-oss:120b-cloud"
+    ollama_api_key: Optional[str] = None
 
     # Scraper
     scrape_bekleme_min: int = 2          # saniye (min bekleme)

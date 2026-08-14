@@ -22,7 +22,11 @@ def _sistem_mesaji_olustur(keyword_baglami: Optional[str] = None) -> str:
         "Kullanıcıya Etsy'deki ürün ve keyword performansı hakkında "
         "Türkçe, net ve pratik tavsiyeler veriyorsun. "
         "Cevapların kısa ve aksiyona yönelik olsun. "
-        "Sayısal veriler paylaşıldığında bunları yorumla."
+        "Sayısal veriler paylaşıldığında bunları yorumla.\n\n"
+        "BİST AKADEMİK DÖNGÜ KURALLARI (Bekçioğlu vd., 2018):\n"
+        "- BİST 100'de 15, 20, 36, 45 ve 60 günlük periyotlarda matematiksel dönüşler (ritimler) vardır.\n"
+        "- 4.5 ay ve 1 yıllık mevsimsel döngüler ana yön değişimleridir.\n"
+        "- Veri durağan (stationary) değilse yapılan analiz geçersiz sayılabilir."
     )
     if keyword_baglami:
         temel += f'\n\nŞu an kullanıcı "{keyword_baglami}" keyword\'ünü analiz ediyor.'
@@ -64,7 +68,11 @@ async def llm_yanit_al(
 
     url = f"{ayarlar.ollama_api_url}/api/chat"
 
-    async with httpx.AsyncClient(timeout=120) as istemci:
+    headers = {}
+    if ayarlar.ollama_api_key:
+        headers["Authorization"] = f"Bearer {ayarlar.ollama_api_key}"
+
+    async with httpx.AsyncClient(timeout=120, headers=headers) as istemci:
         try:
             yanit = await istemci.post(
                 url,
@@ -105,7 +113,11 @@ async def llm_yanit_stream(
 
     url = f"{ayarlar.ollama_api_url}/api/chat"
 
-    async with httpx.AsyncClient(timeout=180) as istemci:
+    headers = {}
+    if ayarlar.ollama_api_key:
+        headers["Authorization"] = f"Bearer {ayarlar.ollama_api_key}"
+
+    async with httpx.AsyncClient(timeout=180, headers=headers) as istemci:
         try:
             async with istemci.stream(
                 "POST",
