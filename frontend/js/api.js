@@ -1,4 +1,8 @@
-const API_BASE = "http://localhost:8000/api";
+// Backend URL'sini otomatik ayarlar: Lokaldeysek 8000 portu, sunucudaysak Render URL'si
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const API_BASE = IS_LOCAL 
+    ? "http://localhost:8000/api" 
+    : "https://SENIN_RENDER_URLN.onrender.com/api"; // TODO: Render'a deploy edince burayı kendi URL'inle değiştir!
 
 const api = {
     // Yeni kelime ara ve kazı (veya varsa döndür)
