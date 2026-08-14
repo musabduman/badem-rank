@@ -1,0 +1,42 @@
+name: Günlük Etsy Scrape
+
+on:
+  schedule:
+    # Her gece 23:00 UTC = 02:00 TR saati
+    - cron: '0 23 * * *'
+  workflow_dispatch:  # Manuel tetikleme (GitHub Actions UI'dan)
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Kodu çek
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Bağımlılıkları yükle
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Scrape çalıştır
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OLLAMA_API_URL: ${{ secrets.OLLAMA_API_URL }}
+          SCRAPE_BEKLEME_MIN: 3
+          SCRAPE_BEKLEME_MAX: 7
+          SCRAPE_SAYFA_LIMITI: 3
+          APP_ORTAM: production
+        working-directory: backend
+        run: python -m scrapers.calistir
+        
+      - name: Sonucu logla
+        if: always()
+        run: echo "Scrape tamamlandı - ${{ job.status }}"

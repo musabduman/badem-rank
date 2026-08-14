@@ -1,0 +1,52 @@
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Pytest / test cache
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# ── Environment & Gizli Dosyalar ──────────────────────────────
+.env
+.env.local
+.env.production
+*.key
+*.pem
+
+# ── IDE & Editor ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Node / Frontend (ileride gerekirse) ───────────────────────
+node_modules/
+.next/
+dist/
+.vercel/
+
+# ── Build & Paket ─────────────────────────────────────────────
+*.egg-info/
+build/
+*.whl
+
+# ── Proje'ye Özel ─────────────────────────────────────────────
+# Scraper test çıktıları
+*.html.test
+scrape_test_output/
