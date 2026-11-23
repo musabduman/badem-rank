@@ -50,3 +50,5 @@ build/
 # Scraper test çıktıları
 *.html.test
 scrape_test_output/
+
+*.zip
