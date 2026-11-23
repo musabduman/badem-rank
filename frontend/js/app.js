@@ -24,19 +24,49 @@ searchBtn.addEventListener("click", async () => {
     const text = searchInput.value.trim();
     if (!text) return;
     
+    // UI donmasını önle ve kullanıcıya durum göster
+    searchBtn.disabled = true;
+    searchBtn.textContent = "⏳ Veri Çekiliyor...";
     currentKeywordTitle.textContent = text;
-    dataStatus.textContent = "Analiz Ediliyor...";
-    dataStatus.className = "badge";
+    dataStatus.textContent = "Etsy taranıyor (arka planda)...";
+    dataStatus.className = "badge warning";
     
-    const kw = await api.searchKeyword(text);
-    if (!kw) {
+    try {
+        const kw = await api.searchKeyword(text);
+        if (!kw) {
+            dataStatus.textContent = "Hata oluştu";
+            dataStatus.className = "badge error";
+            return;
+        }
+        
+        currentKeywordId = kw.id;
+        
+        // İlk yüklemeyi dene
+        await loadDashboard(currentKeywordId);
+        
+        // Akıllı polling (arkada scrape bitene kadar 2.5 sn aralıklarla kontrol et)
+        let basarili = false;
+        for (let i = 0; i < 12; i++) {
+            await new Promise(r => setTimeout(r, 2500));
+            const details = await api.getKeywordDetails(currentKeywordId);
+            if (details && details.son_anlik) {
+                await loadDashboard(currentKeywordId);
+                basarili = true;
+                break;
+            }
+        }
+        
+        if (!basarili) {
+            await loadDashboard(currentKeywordId);
+        }
+    } catch (e) {
+        console.error("Arama hatası:", e);
         dataStatus.textContent = "Hata oluştu";
-        dataStatus.classList.add("error");
-        return;
+        dataStatus.className = "badge error";
+    } finally {
+        searchBtn.disabled = false;
+        searchBtn.textContent = "Analiz Et";
     }
-    
-    currentKeywordId = kw.id;
-    await loadDashboard(currentKeywordId);
 });
 
 searchInput.addEventListener("keypress", (e) => {

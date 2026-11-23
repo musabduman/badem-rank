@@ -4,12 +4,74 @@ Upsert mantığı: aynı etsy_listing_id varsa güncelle, yoksa ekle.
 Günlük snapshot'ı kaydedip delta hesaplar.
 """
 import logging
+import asyncio
 from datetime import date
-from typing import Optional
+from typing import Optional, List
 from database import supabase
 from services.analitik_service import gunluk_delta_hesapla, rekabet_skoru_hesapla
 
 logger = logging.getLogger(__name__)
+
+
+async def toplu_listing_ve_snapshot_kaydet(listinglar: List[dict], keyword_id: str) -> int:
+    """
+    Tüm listingleri ve günlük snapshotları toplu (bulk upsert) olarak ve 
+    arka planda ayrı bir thread'de (asyncio.to_thread) kaydeder.
+    150 tekil HTTP isteği yerine tek seferde 2 sorgu atar, sunucuyu ve ekranı asla kilitlemez.
+    """
+    if not listinglar:
+        return 0
+
+    def _sync_islem():
+        bugun = date.today().isoformat()
+        upsert_verileri = [
+            {
+                **item,
+                "keyword_id": keyword_id,
+                "son_guncellendi": bugun
+            }
+            for item in listinglar
+        ]
+
+        try:
+            yanit = (
+                supabase.table("listinglar")
+                .upsert(
+                    upsert_verileri,
+                    on_conflict="etsy_listing_id",
+                    ignore_duplicates=False
+                )
+                .execute()
+            )
+            kaydedilenler = yanit.data or []
+            logger.info(f"⚡ Toplu kayıt başarılı: {len(kaydedilenler)} listing")
+
+            if kaydedilenler:
+                snapshot_verileri = [
+                    {
+                        "listing_id": rec["id"],
+                        "tarih": bugun,
+                        "favori_sayisi": rec.get("favori_sayisi", 0),
+                        "yorum_sayisi": rec.get("yorum_sayisi", 0),
+                        "satis_tahmini": rec.get("satis_tahmini", 0),
+                        "gunluk_satis_degisim": 0,
+                        "gunluk_favori_degisim": 0,
+                        "gunluk_yorum_degisim": 0
+                    }
+                    for rec in kaydedilenler
+                ]
+
+                supabase.table("listing_gunluk_anliklari").upsert(
+                    snapshot_verileri,
+                    on_conflict="listing_id,tarih"
+                ).execute()
+
+            return len(kaydedilenler)
+        except Exception as e:
+            logger.error(f"Toplu kaydetme hatası: {e}")
+            return 0
+
+    return await asyncio.to_thread(_sync_islem)
 
 
 async def listing_kaydet(listing_verisi: dict, keyword_id: str) -> Optional[str]:
@@ -116,15 +178,18 @@ async def keyword_anlik_kaydet(
         "rekabet_skoru": rekabet
     }
 
-    try:
-        supabase.table("keyword_anliklari").upsert(
-            anlik_verisi,
-            on_conflict="keyword_id,cekilme_tarihi"
-        ).execute()
-        return True
-    except Exception as e:
-        logger.error(f"Keyword anlık kaydetme hatası (keyword_id={keyword_id}): {e}")
-        return False
+    def _sync_anlik():
+        try:
+            supabase.table("keyword_anliklari").upsert(
+                anlik_verisi,
+                on_conflict="keyword_id,cekilme_tarihi"
+            ).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Keyword anlık kaydetme hatası (keyword_id={keyword_id}): {e}")
+            return False
+
+    return await asyncio.to_thread(_sync_anlik)
 
 
 async def scrape_log_baslat(keyword: str) -> Optional[str]:

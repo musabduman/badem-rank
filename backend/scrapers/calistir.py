@@ -11,6 +11,7 @@ import time
 from database import supabase
 from scrapers.etsy_arama import keyword_tam_scrape
 from scrapers.kaydet import (
+    toplu_listing_ve_snapshot_kaydet,
     listing_kaydet,
     gunluk_snapshot_kaydet,
     keyword_anlik_kaydet,
@@ -44,13 +45,8 @@ async def keyword_isle(keyword_id: str, keyword: str):
         # 2. Listing sayısı tahmini (çekilen * sayfa limiti)
         listing_sayisi_tahmini = len(listinglar) * 10  # kaba tahmin
 
-        # 3. Listingleri kaydet
-        basarili = 0
-        for listing_verisi in listinglar:
-            listing_id = await listing_kaydet(listing_verisi, keyword_id)
-            if listing_id:
-                await gunluk_snapshot_kaydet(listing_id, listing_verisi)
-                basarili += 1
+        # 3. Listingleri toplu ve thread üzerinde kaydet (ana döngüyü dondurmaz)
+        basarili = await toplu_listing_ve_snapshot_kaydet(listinglar, keyword_id)
 
         # 4. Keyword anlık istatistik kaydet
         await keyword_anlik_kaydet(keyword_id, listinglar, listing_sayisi_tahmini)
