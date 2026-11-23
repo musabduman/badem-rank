@@ -2,7 +2,7 @@
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_BASE = IS_LOCAL 
     ? "http://localhost:8000/api" 
-    : "https://SENIN_RENDER_URLN.onrender.com/api"; // TODO: Render'a deploy edince burayı kendi URL'inle değiştir!
+    : "https://badem-rank.onrender.com/api";
 
 const api = {
     // Yeni kelime ara ve kazı (veya varsa döndür)
