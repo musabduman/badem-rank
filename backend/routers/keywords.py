@@ -70,13 +70,15 @@ async def keyword_ekle(veri: KeywordOlustur, background_tasks: BackgroundTasks):
     if not yanit.data:
         raise HTTPException(status_code=500, detail="Keyword kaydedilemedi")
 
-    yeni_kw = yanit.data[0]
+    yeni_kw: dict = yanit.data[0]
+    kw_id = str(yeni_kw.get("id"))
+    kw_text = str(yeni_kw.get("keyword"))
 
     # Arka planda ilk scrape'i başlat
-    background_tasks.add_task(keyword_isle, yeni_kw["id"], yeni_kw["keyword"])
+    background_tasks.add_task(keyword_isle, kw_id, kw_text)
     logger.info(f"Yeni keyword eklendi ve scrape başlatıldı: '{veri.keyword}'")
 
-    return yeni_kw
+    return KeywordYaniti(**yeni_kw)
 
 
 @router.get("/{keyword_id}", response_model=KeywordDetayYaniti)
