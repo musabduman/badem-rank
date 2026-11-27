@@ -36,6 +36,48 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("etsy_research")
 
 BASE_URL = "https://www.etsy.com/search"
+ETSY_API_URL = "https://openapi.etsy.com/v3/application/listings/active"
+
+
+def fetch_via_etsy_api(keyword: str, pages: int = 2) -> List[Dict[str, Any]]:
+    """Etsy resmi OpenAPI v3 ile veri çeker (DataDome engeline takılmaz)."""
+    api_key = os.environ.get("ETSY_API_KEY")
+    if not api_key:
+        return []
+
+    headers = {"x-api-key": api_key}
+    all_items = []
+    limit = 25
+    with httpx.Client(timeout=15.0) as client:
+        for page in range(1, pages + 1):
+            params = {
+                "keywords": keyword,
+                "limit": limit,
+                "offset": (page - 1) * limit,
+                "sort_on": "score"
+            }
+            try:
+                logger.info(f"Etsy resmi API ile sayfa {page} çekiliyor: '{keyword}'...")
+                res = client.get(ETSY_API_URL, headers=headers, params=params)
+                if res.status_code == 200:
+                    data = res.json()
+                    for item in data.get("results", []):
+                        p = item.get("price", {})
+                        amount = round(p.get("amount", 0) / p.get("divisor", 100), 2) if p.get("divisor") else None
+                        all_items.append({
+                            "listing_id": str(item["listing_id"]),
+                            "title": item.get("title") or "",
+                            "price": amount,
+                            "reviews": int(item.get("views", 0) * 0.05),
+                            "star_seller": False,
+                            "shop_name": f"Shop #{item.get('shop_id')}",
+                            "url": item.get("url") or f"https://www.etsy.com/listing/{item['listing_id']}",
+                            "img_url": "",
+                        })
+            except Exception as e:
+                logger.warning(f"Etsy API hatası (sayfa {page}): {e}")
+                break
+    return all_items
 
 def extract_price(text: str) -> Optional[float]:
     if not text:
@@ -218,22 +260,25 @@ def main():
         except Exception as e:
             logger.warning(f"Could not read previous snapshot: {e}")
 
-    # Scrape pages
-    all_listings = []
-    seen_ids = set()
-    for page in range(1, args.pages + 1):
-        try:
-            html = fetch_page(args.keyword, page=page)
-            page_listings = parse_listings(html)
-            for item in page_listings:
-                if item["listing_id"] not in seen_ids:
-                    seen_ids.add(item["listing_id"])
-                    all_listings.append(item)
-            if page < args.pages:
-                time.sleep(random.uniform(2.0, 4.0))
-        except Exception as e:
-            logger.error(f"Error scraping page {page}: {e}")
-            break
+    # Scrape pages (Önce resmi API, başarısız olursa HTML scraping)
+    all_listings = fetch_via_etsy_api(args.keyword, pages=args.pages)
+    
+    if not all_listings:
+        logger.info("Resmi API sonucu boş veya ulaşılamadı, HTML scraping deneniyor...")
+        seen_ids = set()
+        for page in range(1, args.pages + 1):
+            try:
+                html = fetch_page(args.keyword, page=page)
+                page_listings = parse_listings(html)
+                for item in page_listings:
+                    if item["listing_id"] not in seen_ids:
+                        seen_ids.add(item["listing_id"])
+                        all_listings.append(item)
+                if page < args.pages:
+                    time.sleep(random.uniform(2.0, 4.0))
+            except Exception as e:
+                logger.error(f"Error scraping page {page}: {e}")
+                break
 
     if not all_listings:
         print(json.dumps({"error": f"No listings scraped for keyword '{args.keyword}'"}))

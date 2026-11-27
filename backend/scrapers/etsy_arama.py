@@ -21,6 +21,57 @@ ua = UserAgent()
 
 # Etsy arama URL şablonu
 ETSY_ARAMA_URL = "https://www.etsy.com/search"
+ETSY_API_URL = "https://openapi.etsy.com/v3/application/listings/active"
+
+
+async def _etsy_api_ara(keyword: str, sayfa: int = 1, limit: int = 25) -> list[dict]:
+    """Etsy resmi OpenAPI v3 kullanarak ürünleri çeker."""
+    if not ayarlar.etsy_api_key:
+        return []
+
+    headers = {"x-api-key": ayarlar.etsy_api_key}
+    params = {
+        "keywords": keyword,
+        "limit": limit,
+        "offset": (sayfa - 1) * limit,
+        "sort_on": "score"
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as istemci:
+        try:
+            logger.info(f"Etsy resmi API çağrılıyor: '{keyword}', sayfa {sayfa}")
+            res = await istemci.get(ETSY_API_URL, headers=headers, params=params)
+            res.raise_for_status()
+            data = res.json()
+            results = data.get("results", [])
+
+            listinglar = []
+            for item in results:
+                p = item.get("price", {})
+                amount = round(p.get("amount", 0) / p.get("divisor", 100), 2) if p.get("divisor") else None
+                curr = p.get("currency_code", "USD")
+                favs = item.get("num_favorers", 0)
+                views = item.get("views", 0)
+
+                listinglar.append({
+                    "etsy_listing_id": item["listing_id"],
+                    "baslik": (item.get("title") or "")[:500],
+                    "fiyat": amount,
+                    "para_birimi": curr,
+                    "magaza_adi": f"Shop #{item.get('shop_id')}",
+                    "star_seller_mi": False,
+                    "listing_url": (item.get("url") or f"https://www.etsy.com/listing/{item['listing_id']}")[:500],
+                    "resim_url": None,
+                    "etiketler": item.get("tags") or [],
+                    "favori_sayisi": favs,
+                    "yorum_sayisi": int(views * 0.05),
+                    "satis_tahmini": max(1, int(favs * 1.5))
+                })
+            logger.info(f"Etsy API başarılı: {len(listinglar)} ürün bulundu.")
+            return listinglar
+        except Exception as e:
+            logger.error(f"Etsy resmi API hatası: {e}")
+            return []
 
 
 def _rastgele_basliklar() -> dict:
@@ -116,14 +167,15 @@ def _listing_parse_et(kart: BeautifulSoup) -> Optional[dict]:
 async def etsy_ara(keyword: str, sayfa: int = 1) -> list[dict]:
     """
     Etsy arama sonuçlarından listing verilerini çeker.
-    
-    Args:
-        keyword: Aranacak kelime
-        sayfa: Hangi sayfa (1-3 arası önerilen)
-    
-    Returns:
-        listing dict listesi, hata durumunda boş liste
+    Öncelikle resmi Etsy OpenAPI v3'ü dener; başarısız olursa HTML kazımaya düşer.
     """
+    # 1. Resmi Etsy API dene (DataDome engelsiz)
+    if ayarlar.etsy_api_key:
+        api_sonuclar = await _etsy_api_ara(keyword, sayfa=sayfa)
+        if api_sonuclar:
+            return api_sonuclar
+
+    # 2. HTML Kazıma Fallback
     params = {
         "q": keyword,
         "page": sayfa,
@@ -207,6 +259,11 @@ async def keyword_tam_scrape(keyword: str) -> dict:
 
         tum_listinglar.extend(listinglar)
         logger.info(f"'{keyword}' sayfa {sayfa}: {len(listinglar)} listing eklendi, toplam: {len(tum_listinglar)}")
+
+        # Eğer gelen ürün sayısı sayfa limitinden (25) azsa son sayfadayız demektir
+        if len(listinglar) < 25:
+            logger.info(f"'{keyword}': Son sayfaya ulaşıldı ({len(listinglar)} < 25).")
+            break
 
     # Tekrar eden listing ID'lerini kaldır (sayfa geçişlerinde overlap olabilir)
     goruldu = set()

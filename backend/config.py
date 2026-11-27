@@ -15,6 +15,9 @@ class Ayarlar(BaseSettings):
     ollama_model: str = "gpt-oss:120b-cloud"
     ollama_api_key: Optional[str] = None
 
+    # Etsy Resmi API (Sadece .env üzerinden okunur)
+    etsy_api_key: Optional[str] = None
+
     # Scraper
     scrape_bekleme_min: int = 2          # saniye (min bekleme)
     scrape_bekleme_max: int = 5          # saniye (max bekleme)
