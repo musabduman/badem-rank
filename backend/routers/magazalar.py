@@ -136,6 +136,137 @@ async def _magaza_listingleri_cek(
         return []
 
 
+async def _gunluk_listing_snapshotlarini_kaydet(
+    sb: Client,
+    kaydedilen_listinglar: list[dict],
+    bugun: str,
+) -> None:
+    """
+    Takip edilen her ürün için günlük stok/favori snapshot'ı kaydeder ve
+    bir önceki güne göre günlük satış (stok düşüşü) deltasını hesaplar.
+    Restock (stok artışı) durumunda eksi satış yazılmaz (0 kabul edilir).
+    """
+    takip_edilenler = [
+        r for r in kaydedilen_listinglar
+        if r.get("takip_aktif", True) and r.get("id")
+    ]
+    if not takip_edilenler:
+        return
+
+    listing_ids = [r["id"] for r in takip_edilenler]
+    try:
+        onceki_rows = (
+            sb.table("magaza_listing_anliklari")
+            .select("listing_id, tarih, stok_miktari, favori_sayisi")
+            .in_("listing_id", listing_ids)
+            .lt("tarih", bugun)
+            .order("tarih", desc=True)
+            .execute()
+        ).data or []
+
+        onceki_map: dict[str, dict] = {}
+        for row in onceki_rows:
+            lid = row["listing_id"]
+            if lid not in onceki_map:
+                onceki_map[lid] = row
+
+        anlik_kayitlar = []
+        for r in takip_edilenler:
+            lid = r["id"]
+            bugun_stok = r.get("stok_miktari") or 0
+            bugun_fav = r.get("favori_sayisi") or 0
+            onceki = onceki_map.get(lid)
+
+            if onceki is not None:
+                onceki_stok = onceki.get("stok_miktari") or 0
+                onceki_fav = onceki.get("favori_sayisi") or 0
+                gunluk_satis = max(0, onceki_stok - bugun_stok)
+                gunluk_fav_degisim = max(0, bugun_fav - onceki_fav)
+            else:
+                gunluk_satis = 0
+                gunluk_fav_degisim = 0
+
+            anlik_kayitlar.append({
+                "listing_id": lid,
+                "tarih": bugun,
+                "stok_miktari": bugun_stok,
+                "favori_sayisi": bugun_fav,
+                "goruntuleme": r.get("goruntuleme") or 0,
+                "fiyat": r.get("fiyat"),
+                "gunluk_satis": gunluk_satis,
+                "gunluk_favori_degisim": gunluk_fav_degisim,
+            })
+
+        if anlik_kayitlar:
+            sb.table("magaza_listing_anliklari").upsert(
+                anlik_kayitlar,
+                on_conflict="listing_id,tarih",
+            ).execute()
+    except Exception as e:
+        logger.warning(f"Ürün günlük snapshot kaydı atlandı: {e}")
+
+
+def _listinglere_gunluk_gecmis_ekle(
+    sb: Client,
+    listings: list[dict],
+    gun_sayisi: int = 7,
+) -> list[dict]:
+    """Ürün listesine günlük satış özeti ve son N günün geçmişini tek sorguda ekler."""
+    if not listings:
+        return []
+
+    listing_ids = [u["id"] for u in listings if u.get("id")]
+    if not listing_ids:
+        return listings
+
+    gecmis_map: dict[str, list[dict]] = {}
+    try:
+        rows = (
+            sb.table("magaza_listing_anliklari")
+            .select("listing_id, tarih, gunluk_satis, gunluk_favori_degisim, stok_miktari")
+            .in_("listing_id", listing_ids)
+            .order("tarih", desc=True)
+            .limit(len(listing_ids) * gun_sayisi)
+            .execute()
+        ).data or []
+        for row in rows:
+            lid = row["listing_id"]
+            gecmis_map.setdefault(lid, []).append(row)
+    except Exception as e:
+        logger.warning(f"Ürün günlük geçmişi okunamadı: {e}")
+
+    zengin = []
+    for u in listings:
+        hist = gecmis_map.get(u.get("id"), [])
+        ilk_gun_mu = len(hist) < 2
+        if hist and not ilk_gun_mu:
+            bugun_satis = hist[0].get("gunluk_satis", 0)
+            gunluk_fav_degisim = hist[0].get("gunluk_favori_degisim", 0)
+            toplam_takip_satis = sum(h.get("gunluk_satis") or 0 for h in hist)
+        else:
+            bugun_satis = None
+            gunluk_fav_degisim = 0
+            toplam_takip_satis = 0
+
+        zengin.append({
+            **u,
+            "ilk_gun_mu": ilk_gun_mu,
+            "bugun_satis": bugun_satis,
+            "gunluk_favori_degisim": gunluk_fav_degisim,
+            "toplam_takip_satis": toplam_takip_satis,
+            "gunluk_gecmis": [
+                {
+                    "tarih": h["tarih"],
+                    "satis": h.get("gunluk_satis", 0),
+                    "fav": h.get("gunluk_favori_degisim", 0),
+                    "stok": h.get("stok_miktari", 0),
+                }
+                for h in hist[:gun_sayisi]
+            ],
+        })
+    return zengin
+
+
 async def magaza_urunlerini_senkronize_et(
     sb: Client,
     magaza_id: str,
@@ -187,6 +318,7 @@ async def magaza_urunlerini_senkronize_et(
         ).execute()
         kaydedilen_listinglar = res.data or kayitlar
         logger.info(f"Mağaza {shop_id}: {len(kayitlar)} listing senkronize edildi")
+        await _gunluk_listing_snapshotlarini_kaydet(sb, kaydedilen_listinglar, bugun)
 
     if bilgi:
         sb.table("magaza_anliklari").upsert(
@@ -247,20 +379,28 @@ async def magazalari_listele(sb: Client = Depends(supabase_al)):
             takip_sayaci[mid] = takip_sayaci.get(mid, 0) + 1
 
     son_anlik: dict[str, dict] = {}
+    onceki_anlik: dict[str, dict] = {}
     for row in anlik_rows:
         mid = row["magaza_id"]
         if mid not in son_anlik:
             son_anlik[mid] = row
+        elif mid not in onceki_anlik:
+            onceki_anlik[mid] = row
 
     sonuc = []
     for m in magazalar:
         mid = m["id"]
         anlik = son_anlik.get(mid, {})
+        onceki = onceki_anlik.get(mid, {})
+        gunluk_satis_artis = None
+        if anlik.get("toplam_satis") is not None and onceki.get("toplam_satis") is not None:
+            gunluk_satis_artis = max(0, anlik["toplam_satis"] - onceki["toplam_satis"])
         sonuc.append({
             **m,
             "takip_edilen_urun_sayisi": takip_sayaci.get(mid, 0),
             "toplam_urun_sayisi": toplam_sayaci.get(mid, 0),
             "toplam_satis": anlik.get("toplam_satis"),
+            "gunluk_satis_artis": gunluk_satis_artis,
             "yorum_puani": anlik.get("yorum_puani"),
             "yorum_sayisi": anlik.get("yorum_sayisi"),
         })
@@ -427,7 +567,8 @@ async def etsy_magaza_listing_onizleme(
                 .execute()
             ).data or []
             if db_urunler:
-                return [{**u, "kayitli": True} for u in db_urunler]
+                zengin_urunler = _listinglere_gunluk_gecmis_ekle(sb, db_urunler)
+                return [{**u, "kayitli": True} for u in zengin_urunler]
     except Exception as e:
         logger.warning(f"Mağaza önizleme DB kontrolü atlandı ({shop_id}): {e}")
 
@@ -502,13 +643,14 @@ async def magaza_ekle(
         haric_etsy_ids=istek.haric_etsy_ids,
         mevcut_dislamalari_koru=False,
     )
+    zengin_listinglar = _listinglere_gunluk_gecmis_ekle(sb, kaydedilen_listinglar)
 
     return {
         "basarili": True,
         "magaza_id": magaza_id,
         "shop_id": shop_id,
         "shop_name": shop_name,
-        "listinglar": kaydedilen_listinglar,
+        "listinglar": [{**u, "kayitli": True} for u in zengin_listinglar],
     }
 
 
@@ -535,7 +677,7 @@ async def magaza_listingleri_getir(
     sadece_takip: bool = False,
     sb: Client = Depends(supabase_al),
 ):
-    """Mağazanın DB'deki ürünlerini döner."""
+    """Mağazanın DB'deki ürünlerini günlük satış geçmişiyle birlikte döner."""
     q = (
         sb.table("magaza_listingleri")
         .select("*")
@@ -545,7 +687,9 @@ async def magaza_listingleri_getir(
     if sadece_takip:
         q = q.eq("takip_aktif", True)
     r = q.execute()
-    return r.data or []
+    urunler = r.data or []
+    zengin = _listinglere_gunluk_gecmis_ekle(sb, urunler)
+    return [{**u, "kayitli": True} for u in zengin]
 
 
 @listing_router.patch("/{listing_id}")

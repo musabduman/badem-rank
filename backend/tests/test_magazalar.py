@@ -261,3 +261,107 @@ async def test_gunluk_magazalari_tara_kullanici_dislama_korur():
     assert by_id[1002]["takip_aktif"] is False
     assert by_id[1003]["takip_aktif"] is True
     assert captured_upserts["anlik"]["toplam_satis"] == 1710
+
+
+@pytest.mark.asyncio
+async def test_magaza_listing_gunluk_satis_deltasi_ve_restock():
+    """
+    Stok düşüşü kadar gunluk_satis hesaplanmalı; restock (stok artışı) durumunda 0 olmalı.
+    İlk kez görülen üründe delta 0 kaydedilmeli.
+    """
+    from routers.magazalar import magaza_urunlerini_senkronize_et
+
+    sb = _mock_sb()
+    captured = {}
+
+    def table_side_effect(name):
+        t = MagicMock()
+        if name == "magaza_listingleri":
+            def upsert_listings(rows, **kw):
+                res = MagicMock()
+                # DB UUID atanmış gibi döndür
+                out = []
+                for idx, r in enumerate(rows):
+                    out.append({**r, "id": f"uuid-{r['etsy_listing_id']}"})
+                res.execute.return_value.data = out
+                return res
+            t.upsert.side_effect = upsert_listings
+        elif name == "magaza_listing_anliklari":
+            # Dünkü snapshotlar:
+            # 101: dün stok 20, fav 10 -> bugün stok 17, fav 13 => satis=3, fav=+3
+            # 102: dün stok 5, fav 20  -> bugün stok 25 (restock!), fav 21 => satis=0, fav=+1
+            # 103: ilk gün (snapshot yok) => satis=0, fav=0
+            t.select.return_value.in_.return_value.lt.return_value.order.return_value.execute.return_value.data = [
+                {"listing_id": "uuid-101", "tarih": "2026-11-27", "stok_miktari": 20, "favori_sayisi": 10},
+                {"listing_id": "uuid-102", "tarih": "2026-11-27", "stok_miktari": 5, "favori_sayisi": 20},
+            ]
+            def upsert_anliklar(rows, **kw):
+                captured["anliklar"] = rows
+                res = MagicMock()
+                res.execute.return_value.data = rows
+                return res
+            t.upsert.side_effect = upsert_anliklar
+        elif name == "magaza_anliklari":
+            t.upsert.return_value.execute.return_value.data = []
+        return t
+
+    sb.table.side_effect = table_side_effect
+
+    etsy_listings = {
+        "results": [
+            {"listing_id": 101, "title": "Satilan Urun", "price": {"amount": 1000, "divisor": 100, "currency_code": "USD"}, "tags": [], "num_favorers": 13, "views": 100, "quantity": 17},
+            {"listing_id": 102, "title": "Restock Urun", "price": {"amount": 1200, "divisor": 100, "currency_code": "USD"}, "tags": [], "num_favorers": 21, "views": 80, "quantity": 25},
+            {"listing_id": 103, "title": "Ilk Gun Urun", "price": {"amount": 800, "divisor": 100, "currency_code": "USD"}, "tags": [], "num_favorers": 5, "views": 20, "quantity": 10},
+        ]
+    }
+
+    async def fake_etsy_get(url, params=None, **kwargs):
+        if "/listings/active" in url:
+            return etsy_listings
+        return {"shop_id": 555, "transaction_sold_count": 100, "review_count": 10, "review_average": 4.9}
+
+    with patch("routers.magazalar._etsy_get", side_effect=fake_etsy_get):
+        await magaza_urunlerini_senkronize_et(sb=sb, magaza_id="m1", shop_id=555)
+
+    assert "anliklar" in captured
+    by_lid = {r["listing_id"]: r for r in captured["anliklar"]}
+    assert by_lid["uuid-101"]["gunluk_satis"] == 3
+    assert by_lid["uuid-101"]["gunluk_favori_degisim"] == 3
+    assert by_lid["uuid-102"]["gunluk_satis"] == 0  # Restock eksi yazmamalı
+    assert by_lid["uuid-102"]["gunluk_favori_degisim"] == 1
+    assert by_lid["uuid-103"]["gunluk_satis"] == 0
+
+
+def test_magaza_listinglari_gunluk_gecmis_ile_doner():
+    """GET /api/magazalar/{id}/listinglar günlük satış ve 7 günlük geçmişi döndürmeli."""
+    sb = _mock_sb()
+
+    def table_side_effect(name):
+        t = MagicMock()
+        if name == "magaza_listingleri":
+            t.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+                {"id": "l1", "magaza_id": "m1", "etsy_listing_id": 101, "baslik": "Urun 1", "fiyat": 15.0, "favori_sayisi": 40, "takip_aktif": True},
+                {"id": "l2", "magaza_id": "m1", "etsy_listing_id": 102, "baslik": "Ilk Gun Urun", "fiyat": 9.0, "favori_sayisi": 5, "takip_aktif": True},
+            ]
+        elif name == "magaza_listing_anliklari":
+            t.select.return_value.in_.return_value.order.return_value.limit.return_value.execute.return_value.data = [
+                {"listing_id": "l1", "tarih": "2026-11-28", "gunluk_satis": 4, "gunluk_favori_degisim": 2, "stok_miktari": 12},
+                {"listing_id": "l1", "tarih": "2026-11-27", "gunluk_satis": 1, "gunluk_favori_degisim": 1, "stok_miktari": 16},
+                {"listing_id": "l2", "tarih": "2026-11-28", "gunluk_satis": 0, "gunluk_favori_degisim": 0, "stok_miktari": 10},
+            ]
+        return t
+
+    sb.table.side_effect = table_side_effect
+    app.dependency_overrides[supabase_al] = lambda: sb
+    try:
+        res = client.get("/api/magazalar/m1/listinglar")
+        assert res.status_code == 200
+        data = res.json()
+        assert data[0]["bugun_satis"] == 4
+        assert data[0]["toplam_takip_satis"] == 5
+        assert data[0]["ilk_gun_mu"] is False
+        assert len(data[0]["gunluk_gecmis"]) == 2
+        assert data[1]["bugun_satis"] is None
+        assert data[1]["ilk_gun_mu"] is True
+    finally:
+        app.dependency_overrides.clear()

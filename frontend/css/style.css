@@ -411,6 +411,51 @@ h3 { font-size: 1rem; color: var(--text-main); }
 
 .listing-price { font-weight: 600; font-size: 0.85rem; white-space: nowrap; color: var(--text-main); }
 .listing-favs { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+.listing-sales { white-space: nowrap; }
+
+.delta-up { color: var(--success); font-weight: 600; font-size: 0.75rem; }
+
+.sales-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    background: var(--surface);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+}
+.sales-badge.sales-hot {
+    background: hsl(150, 60%, 95%);
+    color: var(--success);
+    border-color: hsl(150, 60%, 80%);
+}
+.sales-badge.sales-first {
+    background: var(--bg-color);
+    color: var(--text-muted);
+}
+
+.listing-history {
+    margin-top: 0.35rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+.history-pill {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+.history-pill.hot {
+    background: hsl(150, 60%, 95%);
+    border-color: hsl(150, 60%, 80%);
+    color: var(--success);
+    font-weight: 600;
+}
 
 /* ─── Search Status ─── */
 .search-status {

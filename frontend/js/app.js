@@ -326,6 +326,29 @@ function renderMagazaListingleri(container, card, listinglar, onCountChange = nu
     const html = listinglar.map(l => {
         const etiketler = (l.etiketler || []).slice(0, 6)
             .map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
+        const favDelta = l.gunluk_favori_degisim > 0 ? ` <span class="delta-up">+${l.gunluk_favori_degisim}</span>` : '';
+
+        let satisRozetHtml = '';
+        if (l.kayitli) {
+            if (l.ilk_gun_mu) {
+                satisRozetHtml = `<span class="sales-badge sales-first" title="Günlük satış farkı yarın hesaplanacak">🛒 İlk gün (stok: ${l.stok_miktari ?? 0})</span>`;
+            } else {
+                const s = l.bugun_satis ?? 0;
+                satisRozetHtml = `<span class="sales-badge ${s > 0 ? 'sales-hot' : ''}" title="Stok değişimine göre bugünkü satış">🛒 Bugün: ${s} satış</span>`;
+            }
+        } else {
+            satisRozetHtml = `<span class="sales-badge sales-first" title="Mevcut stok">📦 Stok: ${l.stok_miktari ?? 0}</span>`;
+        }
+
+        let gecmisHtml = '';
+        if (l.kayitli && Array.isArray(l.gunluk_gecmis) && l.gunluk_gecmis.length > 1) {
+            const gunler = l.gunluk_gecmis.slice(0, 7).map(g => {
+                const tarihKisa = formatShortDate(g.tarih);
+                return `<span class="history-pill ${g.satis > 0 ? 'hot' : ''}">${escapeHtml(tarihKisa)}: ${g.satis}</span>`;
+            }).join('');
+            gecmisHtml = `<div class="listing-history">${gunler}</div>`;
+        }
+
         return `
             <div class="listing-row">
                 <div class="checkbox-label">
@@ -336,10 +359,12 @@ function renderMagazaListingleri(container, card, listinglar, onCountChange = nu
                     <div class="listing-info">
                         <a href="${escapeAttr(l.listing_url || '#')}" target="_blank" class="listing-title-sm">${escapeHtml(l.baslik || 'İsimsiz Ürün')}</a>
                         <div class="listing-tags">${etiketler}</div>
+                        ${gecmisHtml}
                     </div>
                 </div>
                 <div class="listing-price">$${l.fiyat ?? '-'}</div>
-                <div class="listing-favs">❤️ ${l.favori_sayisi ?? 0}</div>
+                <div class="listing-favs" title="Favori sayısı">${'❤️'} ${l.favori_sayisi ?? 0}${favDelta}</div>
+                <div class="listing-sales">${satisRozetHtml}</div>
             </div>
         `;
     }).join('');
@@ -414,7 +439,7 @@ async function loadDashboard() {
             card.dataset.shopName = m.shop_name;
 
             const satisText = m.toplam_satis != null
-                ? `Toplam: ${Number(m.toplam_satis).toLocaleString()} satış`
+                ? `Toplam: ${Number(m.toplam_satis).toLocaleString()} satış${m.gunluk_satis_artis > 0 ? ` (+${m.gunluk_satis_artis} bugün)` : ''}`
                 : 'Satış verisi bekleniyor';
             const puanHtml = m.yorum_puani ? `<span>⭐ ${m.yorum_puani}</span>` : '';
             const urunCount = m.takip_edilen_urun_sayisi ?? 0;
@@ -515,4 +540,13 @@ function escapeHtml(str) {
 
 function escapeAttr(str) {
     return escapeHtml(str);
+}
+
+function formatShortDate(isoDate) {
+    if (!isoDate) return '';
+    const parts = String(isoDate).split('-');
+    if (parts.length !== 3) return isoDate;
+    const aylar = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+    const ayIdx = parseInt(parts[1], 10) - 1;
+    return `${parseInt(parts[2], 10)} ${aylar[ayIdx] || parts[1]}`;
 }
