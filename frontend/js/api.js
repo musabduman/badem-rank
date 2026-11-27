@@ -1,24 +1,21 @@
-// Backend URL'sini otomatik ayarlar: Lokaldeysek 8000 portu, sunucudaysak Render URL'si
+// Backend URL — lokal vs Render
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const API_BASE = IS_LOCAL 
-    ? "http://localhost:8000/api" 
+const API_BASE = IS_LOCAL
+    ? "http://localhost:8000/api"
     : "https://badem-rank.onrender.com/api";
 
 const api = {
-    // Yeni kelime ara ve kazı (veya varsa döndür)
+
+    // ─── Keyword Aracı ───────────────────────────────────────
+
     async searchKeyword(keyword) {
         try {
             const res = await fetch(`${API_BASE}/keywords`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ keyword: keyword })
+                body: JSON.stringify({ keyword })
             });
-            
-            // Eğer daha önceden eklendiyse (409 Conflict) liste endpoint'inden o kelimenin ID'sini bulmalıyız
-            // Şimdilik hata yönetimi ve akışı basitleştirmek için listeyi çekeceğiz
-            if (res.status === 409) {
-                return this.findKeywordId(keyword);
-            }
+            if (res.status === 409) return this.findKeywordId(keyword);
             if (!res.ok) throw new Error("API Hatası: " + res.status);
             return await res.json();
         } catch (e) {
@@ -48,13 +45,62 @@ const api = {
         return await res.json();
     },
 
-    async getTagAnalytics(keywordId) {
-        const res = await fetch(`${API_BASE}/analitik/etiketler?keyword_id=${keywordId}`);
+    // ─── Mağaza Takibi ────────────────────────────────────────
+
+    async magazaAra(keyword, tur = "alan") {
+        const res = await fetch(`${API_BASE}/magazalar/ara?keyword=${encodeURIComponent(keyword)}&tur=${tur}`, {
+            method: "POST"
+        });
+        if (!res.ok) throw new Error("Arama hatası: " + res.status);
         return await res.json();
     },
 
-    async getPriceAnalytics(keywordId) {
-        const res = await fetch(`${API_BASE}/analitik/fiyat?keyword_id=${keywordId}`);
+    async etsyMagazaListingleri(shopId) {
+        const res = await fetch(`${API_BASE}/magazalar/etsy/${shopId}/listinglar`);
+        if (!res.ok) throw new Error("Ürün önizleme hatası: " + res.status);
+        return await res.json();
+    },
+
+    async magazaEkle(shopId, shopName, aramaAlani, haricEtsyIds = []) {
+        const res = await fetch(`${API_BASE}/magazalar/ekle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                shop_id: shopId,
+                shop_name: shopName,
+                arama_alani: aramaAlani,
+                haric_etsy_ids: haricEtsyIds
+            })
+        });
+        if (!res.ok) throw new Error("Ekleme hatası: " + res.status);
+        return await res.json();
+    },
+
+    async magazaTakipBirak(magazaId) {
+        const res = await fetch(`${API_BASE}/magazalar/${magazaId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Silme hatası: " + res.status);
+        return await res.json();
+    },
+
+    async takipMagazalar() {
+        const res = await fetch(`${API_BASE}/magazalar`);
+        if (!res.ok) throw new Error("Liste hatası: " + res.status);
+        return await res.json();
+    },
+
+    async magazaListingleri(magazaId) {
+        const res = await fetch(`${API_BASE}/magazalar/${magazaId}/listinglar`);
+        if (!res.ok) throw new Error("Listing hatası: " + res.status);
+        return await res.json();
+    },
+
+    async listingTakipGuncelle(listingId, takipAktif) {
+        const res = await fetch(`${API_BASE}/magaza-listingleri/${listingId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ takip_aktif: takipAktif })
+        });
+        if (!res.ok) throw new Error("Güncelleme hatası: " + res.status);
         return await res.json();
     }
 };

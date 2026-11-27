@@ -30,6 +30,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           OLLAMA_API_URL: ${{ secrets.OLLAMA_API_URL }}
+          ETSY_API_KEY: ${{ secrets.ETSY_API_KEY }}
           SCRAPE_BEKLEME_MIN: 3
           SCRAPE_BEKLEME_MAX: 7
           SCRAPE_SAYFA_LIMITI: 3

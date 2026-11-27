@@ -8,6 +8,8 @@ import asyncio
 import logging
 import sys
 import time
+import httpx
+from config import ayarlar
 from database import supabase
 from scrapers.etsy_arama import keyword_tam_scrape
 from scrapers.kaydet import (
@@ -64,10 +66,50 @@ async def keyword_isle(keyword_id: str, keyword: str):
             await scrape_log_bitir(log_id, "hata", 0, sure, str(e))
 
 
+async def magazalari_tara():
+    """
+    Takip edilen tüm mağazaların (takip_aktif=True) günlük ürün ve satış verilerini günceller.
+    Kullanıcının takip dışı bıraktığı ürünler (takip_aktif=False) korunur.
+    """
+    if not ayarlar.etsy_api_key:
+        logger.warning("ETSY_API_KEY tanımlı değil — günlük mağaza taraması atlanıyor.")
+        return
+
+    from routers.magazalar import magaza_urunlerini_senkronize_et
+
+    try:
+        yanit = supabase.table("magazalar").select("*").eq("takip_aktif", True).execute()
+        magazalar = yanit.data or []
+    except Exception as e:
+        logger.error(f"Takip edilen mağazalar okunamadı: {e}")
+        return
+
+    if not magazalar:
+        logger.info("Takip edilen aktif mağaza yok.")
+        return
+
+    logger.info(f"Toplam {len(magazalar)} takip edilen mağaza güncellenecek")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for m in magazalar:
+            try:
+                await magaza_urunlerini_senkronize_et(
+                    sb=supabase,
+                    magaza_id=m["id"],
+                    shop_id=m["shop_id"],
+                    mevcut_dislamalari_koru=True,
+                    client=client,
+                )
+            except Exception as e:
+                logger.error(f"Mağaza '{m.get('shop_name')}' güncellenemedi: {e}")
+            await asyncio.sleep(1)
+
+    logger.info("🏪 Takip edilen mağazalar güncellendi")
+
+
 async def tumunu_tara(hedef_keyword: str = None):
     """
     Veritabanındaki tüm aktif keyword'leri sırayla tarar.
-    hedef_keyword verilirse sadece onu tarar.
+    hedef_keyword verilmezse takip edilen mağazaları da günlük günceller.
     """
     if hedef_keyword:
         # Belirli bir keyword için çalıştır
@@ -81,18 +123,18 @@ async def tumunu_tara(hedef_keyword: str = None):
         yanit = supabase.table("keywords").select("*").eq("aktif", True).execute()
         keywords = yanit.data or []
 
-    if not keywords:
-        logger.warning("Taranacak aktif keyword yok. Supabase'e keyword ekle.")
-        return
+    if keywords:
+        logger.info(f"Toplam {len(keywords)} keyword taranacak")
+        for kw in keywords:
+            await keyword_isle(kw["id"], kw["keyword"])
+            await asyncio.sleep(10)
+    else:
+        logger.warning("Taranacak aktif keyword yok.")
 
-    logger.info(f"Toplam {len(keywords)} keyword taranacak")
+    if not hedef_keyword:
+        await magazalari_tara()
 
-    for kw in keywords:
-        await keyword_isle(kw["id"], kw["keyword"])
-        # Keyword'ler arası bekleme
-        await asyncio.sleep(10)
-
-    logger.info("🏁 Tüm keyword'ler tamamlandı")
+    logger.info("🏁 Günlük tarama tamamlandı")
 
 
 if __name__ == "__main__":

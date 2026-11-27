@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import ayarlar
 from database import baglantiyi_test_et
-from routers import keywords, listinglar, analitik, llm, sistem
+from routers import keywords, listinglar, analitik, llm, sistem, magazalar
 
 # Log ayarları
 logging.basicConfig(
@@ -55,6 +55,8 @@ app.include_router(listinglar.router)
 app.include_router(analitik.router)
 app.include_router(llm.router)
 app.include_router(sistem.router)
+app.include_router(magazalar.router)
+app.include_router(magazalar.listing_router)
 
 
 @app.get("/")
