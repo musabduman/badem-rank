@@ -198,10 +198,10 @@ function renderMagazaSonuclar(sonuclar, aramaAlani) {
 
         card.innerHTML = `
             <div class="magaza-card-header">
-                <label class="checkbox-label">
+                <div class="checkbox-label">
                     <input type="checkbox" class="magaza-checkbox" ${magaza.takip_ediliyor ? 'checked' : ''}>
                     <button type="button" class="magaza-name-btn">${escapeHtml(magaza.shop_name)}</button>
-                </label>
+                </div>
                 <div class="magaza-meta">
                     <span>🛒 ${(magaza.toplam_satis || 0).toLocaleString()} satış</span>
                     ${magaza.yorum_puani ? `<span>⭐ ${magaza.yorum_puani}</span>` : ''}
@@ -328,7 +328,7 @@ function renderMagazaListingleri(container, card, listinglar, onCountChange = nu
             .map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
         return `
             <div class="listing-row">
-                <label class="checkbox-label">
+                <div class="checkbox-label">
                     <input type="checkbox" class="listing-checkbox"
                         data-listing-id="${escapeAttr(l.id || '')}"
                         data-etsy-listing-id="${escapeAttr(l.etsy_listing_id)}"
@@ -337,7 +337,7 @@ function renderMagazaListingleri(container, card, listinglar, onCountChange = nu
                         <a href="${escapeAttr(l.listing_url || '#')}" target="_blank" class="listing-title-sm">${escapeHtml(l.baslik || 'İsimsiz Ürün')}</a>
                         <div class="listing-tags">${etiketler}</div>
                     </div>
-                </label>
+                </div>
                 <div class="listing-price">$${l.fiyat ?? '-'}</div>
                 <div class="listing-favs">❤️ ${l.favori_sayisi ?? 0}</div>
             </div>

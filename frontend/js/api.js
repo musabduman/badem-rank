@@ -4,6 +4,15 @@ const API_BASE = IS_LOCAL
     ? "http://localhost:8000/api"
     : "https://badem-rank.onrender.com/api";
 
+async function parseError(res, fallback) {
+    try {
+        const data = await res.json();
+        return data?.detail || fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 const api = {
 
     // ─── Keyword Aracı ───────────────────────────────────────
@@ -51,13 +60,13 @@ const api = {
         const res = await fetch(`${API_BASE}/magazalar/ara?keyword=${encodeURIComponent(keyword)}&tur=${tur}`, {
             method: "POST"
         });
-        if (!res.ok) throw new Error("Arama hatası: " + res.status);
+        if (!res.ok) throw new Error(await parseError(res, "Arama hatası: " + res.status));
         return await res.json();
     },
 
     async etsyMagazaListingleri(shopId) {
         const res = await fetch(`${API_BASE}/magazalar/etsy/${shopId}/listinglar`);
-        if (!res.ok) throw new Error("Ürün önizleme hatası: " + res.status);
+        if (!res.ok) throw new Error(await parseError(res, "Ürün önizleme hatası: " + res.status));
         return await res.json();
     },
 
@@ -72,25 +81,25 @@ const api = {
                 haric_etsy_ids: haricEtsyIds
             })
         });
-        if (!res.ok) throw new Error("Ekleme hatası: " + res.status);
+        if (!res.ok) throw new Error(await parseError(res, "Ekleme hatası: " + res.status));
         return await res.json();
     },
 
     async magazaTakipBirak(magazaId) {
         const res = await fetch(`${API_BASE}/magazalar/${magazaId}`, { method: "DELETE" });
-        if (!res.ok) throw new Error("Silme hatası: " + res.status);
+        if (!res.ok) throw new Error(await parseError(res, "Silme hatası: " + res.status));
         return await res.json();
     },
 
     async takipMagazalar() {
         const res = await fetch(`${API_BASE}/magazalar`);
-        if (!res.ok) throw new Error("Liste hatası: " + res.status);
+        if (!res.ok) throw new Error(await parseError(res, "Liste hatası: " + res.status));
         return await res.json();
     },
 
     async magazaListingleri(magazaId) {
         const res = await fetch(`${API_BASE}/magazalar/${magazaId}/listinglar`);
-        if (!res.ok) throw new Error("Listing hatası: " + res.status);
+        if (!res.ok) throw new Error(await parseError(res, "Listing hatası: " + res.status));
         return await res.json();
     },
 
@@ -100,7 +109,7 @@ const api = {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ takip_aktif: takipAktif })
         });
-        if (!res.ok) throw new Error("Güncelleme hatası: " + res.status);
+        if (!res.ok) throw new Error(await parseError(res, "Güncelleme hatası: " + res.status));
         return await res.json();
     }
 };

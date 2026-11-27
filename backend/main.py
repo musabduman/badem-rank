@@ -4,8 +4,9 @@ Tüm router'ları kayıt eder, CORS ayarlar, başlangıç kontrollerini yapar.
 """
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from config import ayarlar
 from database import baglantiyi_test_et
 from routers import keywords, listinglar, analitik, llm, sistem, magazalar
@@ -57,6 +58,19 @@ app.include_router(llm.router)
 app.include_router(sistem.router)
 app.include_router(magazalar.router)
 app.include_router(magazalar.listing_router)
+
+
+@app.exception_handler(Exception)
+async def genel_hata_yakalayici(request: Request, exc: Exception):
+    """500 hatalarında stack trace sızdırmadan CORS uyumlu JSON hata döner."""
+    logger.error(f"Beklenmeyen sunucu hatası ({request.url.path}): {exc}")
+    mesaj = str(exc)
+    if "PGRST205" in mesaj or "schema cache" in mesaj:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Supabase tabloları henüz oluşturulmamış (magazalar_migration.sql çalıştırılmalı)."},
+        )
+    return JSONResponse(status_code=500, content={"detail": "Sunucu hatası oluştu."})
 
 
 @app.get("/")

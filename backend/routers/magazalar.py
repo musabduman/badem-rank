@@ -409,24 +409,27 @@ async def etsy_magaza_listing_onizleme(
     Mağaza takip edilsin ya da edilmesin ürünlerini listeler.
     Takip ediliyorsa ve DB'de ürünleri varsa DB'den; yoksa Etsy'den anlık çeker.
     """
-    mevcut = (
-        sb.table("magazalar")
-        .select("id")
-        .eq("shop_id", shop_id)
-        .eq("takip_aktif", True)
-        .execute()
-    )
-    if mevcut.data:
-        magaza_id = mevcut.data[0]["id"]
-        db_urunler = (
-            sb.table("magaza_listingleri")
-            .select("*")
-            .eq("magaza_id", magaza_id)
-            .order("favori_sayisi", desc=True)
+    try:
+        mevcut = (
+            sb.table("magazalar")
+            .select("id")
+            .eq("shop_id", shop_id)
+            .eq("takip_aktif", True)
             .execute()
-        ).data or []
-        if db_urunler:
-            return [{**u, "kayitli": True} for u in db_urunler]
+        )
+        if mevcut.data:
+            magaza_id = mevcut.data[0]["id"]
+            db_urunler = (
+                sb.table("magaza_listingleri")
+                .select("*")
+                .eq("magaza_id", magaza_id)
+                .order("favori_sayisi", desc=True)
+                .execute()
+            ).data or []
+            if db_urunler:
+                return [{**u, "kayitli": True} for u in db_urunler]
+    except Exception as e:
+        logger.warning(f"Mağaza önizleme DB kontrolü atlandı ({shop_id}): {e}")
 
     # DB'de henüz yoksa Etsy'den canlı çek
     raw_results = await _magaza_listingleri_cek(shop_id, limit=50)
