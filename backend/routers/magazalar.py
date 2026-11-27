@@ -41,17 +41,22 @@ async def _etsy_get(
     params: Optional[dict] = None,
     client: Optional[httpx.AsyncClient] = None,
 ) -> dict:
-    """Etsy API'ye GET isteği atar (opsiyonel paylaşımlı client ile)."""
+    """Etsy API'ye GET isteği atar (429 rate-limit durumunda kısa bekleyip 1 kez tekrar dener)."""
     headers = _etsy_headers()
-    if client is not None:
-        r = await client.get(url, headers=headers, params=params or {})
+
+    async def _do(c: httpx.AsyncClient) -> dict:
+        r = await c.get(url, headers=headers, params=params or {})
+        if r.status_code == 429:
+            await asyncio.sleep(0.75)
+            r = await c.get(url, headers=headers, params=params or {})
         r.raise_for_status()
         return r.json()
 
+    if client is not None:
+        return await _do(client)
+
     async with httpx.AsyncClient(timeout=20.0) as c:
-        r = await c.get(url, headers=headers, params=params or {})
-        r.raise_for_status()
-        return r.json()
+        return await _do(c)
 
 
 def _fiyat_hesapla(item: dict) -> tuple[Optional[float], str]:
@@ -351,17 +356,19 @@ async def _alan_magaza_ara(keyword: str, sb: Client) -> list[dict]:
                 if sid:
                     shop_map[sid] = shop_map.get(sid, 0) + 1
 
-            top_shop_ids = sorted(shop_map, key=shop_map.__getitem__, reverse=True)[:15]
+            top_shop_ids = sorted(shop_map, key=shop_map.__getitem__, reverse=True)[:12]
             if not top_shop_ids:
                 return []
 
-            sem = asyncio.Semaphore(4)
+            # Etsy 5 req/sn limitine takılmamak için istekleri ~4 req/sn hızına yay
+            async def fetch_one(idx: int, sid: int) -> tuple[int, dict]:
+                if idx > 0:
+                    await asyncio.sleep(idx * 0.25)
+                return sid, await _magaza_bilgi_cek(sid, client=client)
 
-            async def fetch_one(sid: int) -> tuple[int, dict]:
-                async with sem:
-                    return sid, await _magaza_bilgi_cek(sid, client=client)
-
-            shop_infos = await asyncio.gather(*(fetch_one(sid) for sid in top_shop_ids))
+            shop_infos = await asyncio.gather(
+                *(fetch_one(idx, sid) for idx, sid in enumerate(top_shop_ids))
+            )
 
         takip_map = _takip_haritasi_al(sb, top_shop_ids)
 
